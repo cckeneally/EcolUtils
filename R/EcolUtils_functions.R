@@ -130,6 +130,76 @@ spec.gen<-function(comm.tab,niche.width.method="levins",perm.method="quasiswap",
   resultats$sign<-as.factor(resultats$sign)
   resultats}
 
+#' Optimized Specialist/Generalist Classification of OTUs
+#'
+#' Efficiently classifies OTUs as generalists, specialists, or non-significant based on the deviation of niche width indices (\code{shannon}, \code{levins}, or \code{occurrence}) from null values. These null values are generated through permutation algorithms applied to community matrices. This optimized version leverages parallel processing to significantly improve performance on large datasets.
+#'
+#' @param comm.tab Community data, a matrix-like object with samples as rows and OTUs as columns.
+#' @param niche.width.method Specifies the niche width index to use: \code{levins} (default), \code{shannon}, or \code{occurrence} (the number of samples where an OTU occurs).
+#' @param n The number of permutations to perform, impacting the robustness and computation time.
+#' @param perm.method Method for null model construction, with \code{quasiswap} (default) from \pkg{vegan} being thoroughly tested.
+#' @param probs Probabilities for confidence interval calculations, allowing for customizable significance levels.
+#' @details The function computes a niche width index for each OTU using either the specified method or the occurrence across the community matrix. For each OTU, the mean index value and confidence intervals are determined from \code{n} permuted matrices. OTUs are then classified based on whether their real niche width falls below, within, or above these confidence intervals. This approach enables a nuanced understanding of OTU niche specialization within ecological communities.
+#' @keywords EcolUtils
+#' @return A dataframe containing the observed niche width value, the mean and confidence intervals of simulated values, and the classification of each OTU as either a specialist, generalist, or non-significant.
+#' @export
+#' @author Optimized by [Your Name or Alias], Original by Guillem Salazar <guillems@@ethz.ch>
+#' @examples
+#' library(RCurl)
+#' x <- getURL("https://raw.githubusercontent.com/GuillemSalazar/MolEcol_2015/master/OTUtable_Salazar_etal_2015_Molecol.txt")
+#' comm.tab <- read.table(text=x, sep="\t", row.names=1, header=TRUE, comment.char="@")
+#' comm.tab <- t(comm.tab[,1:60])
+#' comm.tab <- comm.tab[,which(colSums(comm.tab) > 0)]
+#' res <- spec.gen.optimized(comm.tab, n=100)
+#'
+#' comm.tab.bin <- ceiling(comm.tab / max(comm.tab))
+#' plot(colSums(comm.tab), colSums(comm.tab.bin) / dim(comm.tab.bin)[1], col=res$sign, pch=19, log="x", xlab="Abundance", ylab="Occurrence")
+#' legend("bottomright", levels(res$sign), col=1:3, pch=19, inset=0.01, cex=0.7)
+
+spec.gen.optimized <- function(comm.tab, niche.width.method = "levins", perm.method = "quasiswap", n = 1000, probs = c(0.025, 0.975)) {
+  # Calculate real niche width or occurrence
+  if (niche.width.method == "occurrence") {
+    levin.index.real <- colSums(ceiling(comm.tab / max(comm.tab)))
+  } else {
+    levin.index.real <- as.numeric(niche.width(comm.tab, method = niche.width.method))
+  }
+  names(levin.index.real) <- colnames(comm.tab)
+  
+  # Setup for parallel computation
+  cl <- makeCluster(detectCores() - 1) # Leave one core free for system processes
+  clusterExport(cl, varlist = c("comm.tab", "niche.width.method", "perm.method", "n", "probs"))
+  clusterEvalQ(cl, library(spaa))
+  clusterEvalQ(cl, library(vegan))
+  
+  # Parallel computation of simulated indices
+  levin.index.simul <- parLapply(cl, 1:n, function(i) {
+    if (niche.width.method == "occurrence") {
+      return(colSums(ceiling(permatswap(comm.tab, perm.method, times = 1)$perm[[1]] / max(comm.tab))))
+    } else {
+      return(as.numeric(niche.width(permatswap(comm.tab, perm.method, times = 1)$perm, method = niche.width.method)))
+    }
+  })
+  
+  stopCluster(cl)
+  
+  levin.index.simul <- do.call(rbind, levin.index.simul)
+  colnames(levin.index.simul) <- colnames(comm.tab)
+  
+  # Compute mean and confidence intervals
+  media <- colMeans(levin.index.simul)
+  ci <- t(apply(levin.index.simul, 2, quantile, probs = probs))
+  
+  # Classify OTUs based on real index vs. CI
+  resultats <- data.frame(observed = levin.index.real, mean.simulated = media, lowCI = ci[, 1], uppCI = ci[, 2], sign = NA)
+  
+  resultats$sign <- ifelse(resultats$observed > resultats$uppCI, "GENERALIST",
+                           ifelse(resultats$observed < resultats$lowCI, "SPECIALIST", "NON SIGNIFICANT"))
+  
+  resultats$sign <- factor(resultats$sign)
+  
+  return(resultats)
+}
+
 #' Seasonality test based on autocorrelation and null communities
 #'
 #' Classification of OTU's seasonality based on the sum of their auto-correaltion function and on null community matrices.
