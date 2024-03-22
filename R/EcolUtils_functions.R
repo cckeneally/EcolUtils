@@ -143,7 +143,7 @@ spec.gen<-function(comm.tab,niche.width.method="levins",perm.method="quasiswap",
 #' @keywords EcolUtils
 #' @return A dataframe containing the observed niche width value, the mean and confidence intervals of simulated values, and the classification of each OTU as either a specialist, generalist, or non-significant.
 #' @export
-#' @author Optimized by [Your Name or Alias], Original by Guillem Salazar <guillems@@ethz.ch>
+#' @author Optimized by Chris Keneally <christopher.keneally@@adelaide.edu.au>, Original by Guillem Salazar <guillems@@ethz.ch>
 #' @examples
 #' library(RCurl)
 #' x <- getURL("https://raw.githubusercontent.com/GuillemSalazar/MolEcol_2015/master/OTUtable_Salazar_etal_2015_Molecol.txt")
